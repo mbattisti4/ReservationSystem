@@ -1,4 +1,20 @@
 import { useState } from "react";
+import reservationData from "./data/reservationMock.json";
+
+const buildInitialReservations = (data: { reservationDate: string }[]) => {
+  return data.reduce<Record<string, number[]>>((acc, reservation) => {
+    const [datePart, timePart] = reservation.reservationDate.split(" ");
+    const hour = parseInt(timePart.split(":")[0], 10);
+    if (!Number.isFinite(hour)) return acc;
+    const existing = acc[datePart] ?? [];
+    return {
+      ...acc,
+      [datePart]: Array.from(new Set([...existing, hour])),
+    };
+  }, {});
+};
+
+const initialReservations = buildInitialReservations(reservationData);
 
 function App() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -8,8 +24,24 @@ function App() {
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [reservations, setReservations] = useState<Record<string, number[]>>(initialReservations);
 
   const hours = Array.from({ length: 13 }, (_, i) => 8 + i); // 8 to 20
+
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const getDateKey = (date: Date) => {
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  };
+  const getReservationStatus = (day: Date) => {
+    const reservedHours = reservations[getDateKey(day)] ?? [];
+    if (reservedHours.length === 0) return 'free';
+    if (reservedHours.length >= hours.length) return 'full';
+    return 'partial';
+  };
+  const getBookedHours = (day: Date | null) => {
+    if (!day) return [];
+    return reservations[getDateKey(day)] ?? [];
+  };
 
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear();
@@ -39,12 +71,20 @@ function App() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !email) {
+    if (!name || !email || selectedDate === null || selectedHour === null) {
       alert('Please fill in all fields');
       return;
     }
-    alert(`Reservation made for ${selectedDate?.toDateString()} at ${selectedHour}:00 by ${name} (${email})`);
-    // Reset
+    const dayKey = getDateKey(selectedDate);
+    setReservations(prev => {
+      const current = prev[dayKey] ?? [];
+      if (current.includes(selectedHour)) return prev;
+      return {
+        ...prev,
+        [dayKey]: [...current, selectedHour],
+      };
+    });
+    alert(`Reservation made for ${selectedDate.toDateString()} at ${selectedHour}:00 by ${name} (${email})`);
     setShowHours(false);
     setShowForm(false);
     setSelectedDate(null);
@@ -93,6 +133,12 @@ function App() {
                   key={day.toISOString()}
                   className={`btn btn-ghost btn-sm ${
                     selectedDate && day.toDateString() === selectedDate.toDateString() ? 'btn-active' : ''
+                  } ${
+                    getReservationStatus(day) === 'full'
+                      ? 'text-red-600'
+                      : getReservationStatus(day) === 'partial'
+                      ? 'text-yellow-600'
+                      : ''
                   }`}
                   onClick={() => handleDayClick(day)}
                 >
@@ -116,15 +162,19 @@ function App() {
                 Available Hours for {selectedDate.toDateString()}
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                {hours.map(hour => (
-                  <button
-                    key={hour}
-                    className="btn btn-outline btn-sm"
-                    onClick={() => handleHourClick(hour)}
-                  >
-                    {hour}:00 - {hour + 1}:00
-                  </button>
-                ))}
+                {hours.map(hour => {
+                  const booked = getBookedHours(selectedDate).includes(hour);
+                  return (
+                    <button
+                      key={hour}
+                      className={`btn btn-outline btn-sm ${booked ? 'btn-disabled opacity-60' : ''}`}
+                      onClick={() => !booked && handleHourClick(hour)}
+                      disabled={booked}
+                    >
+                      {hour}:00 - {hour + 1}:00
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
